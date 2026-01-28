@@ -25,6 +25,7 @@ const (
 	emailRegexPattern    = "(?i)^[A-Z0-9_!#$%&'*+/=?`{|}~^.-]+@[A-Z0-9.-]+$"
 	passwordRegexPattern = `^(?=.*[a-z])(?=.*[A-Z])(?=.*[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?~]).{8,}$`
 	bizLogin             = "login"
+	bizResetPassword     = "password_reset"
 )
 
 type UserHandler struct {
@@ -63,6 +64,8 @@ func (u *UserHandler) RegisterRoutes(e *gin.Engine) {
 
 	g.POST("/login_sms/code/send", ginx.WrapBody(u.SendSMSLoginCode))
 	g.POST("/login_sms", ginx.WrapBody(u.LoginSMS))
+	g.POST("/password_reset/code/send", ginx.WrapBody(u.SendSMSResetPasswordCode))
+	g.POST("/password_reset", ginx.WrapBody(u.ResetPassword))
 }
 
 type SignUpReq struct {
@@ -437,5 +440,102 @@ func (u *UserHandler) LoginSMS(ctx *gin.Context, req LoginSMSReq) (ginx.Result, 
 	return ginx.Result{
 		Code: http.StatusOK,
 		Msg:  "登录成功",
+	}, nil
+}
+
+type SendSMSResetPasswordCodeReq struct {
+	Phone string `json:"phone" binding:"required,len=11,numeric"`
+}
+
+func (u *UserHandler) SendSMSResetPasswordCode(ctx *gin.Context, req SendSMSResetPasswordCodeReq) (ginx.Result, error) {
+	if req.Phone == "" {
+		return ginx.Result{
+			Code: errs.UserInvalidInput,
+			Msg:  "请输入手机号码",
+		}, nil
+	}
+	err := u.codeSvc.Send(ctx, bizResetPassword, req.Phone)
+	switch {
+	case err == nil:
+		return ginx.Result{
+			Code: http.StatusOK,
+			Msg:  "发送成功",
+		}, nil
+	case errors.Is(err, service.ErrCodeSendTooMany):
+		return ginx.Result{
+			Code: errs.UserCodeSendTooMany,
+			Msg:  "短信发送太频繁，请稍后再试",
+		}, nil
+	default:
+		return ginx.Result{
+			Code: errs.UserInternalServerError,
+			Msg:  "系统错误",
+		}, err
+	}
+}
+
+type ResetPasswordReq struct {
+	Phone           string `json:"phone" binding:"required,len=11,numeric"`
+	Code            string `json:"code" binding:"required,len=6,numeric"`
+	Password        string `json:"password" binding:"required,min=8,max=32"`
+	ConfirmPassword string `json:"confirmPassword" binding:"required,eqfield=Password"`
+}
+
+func (u *UserHandler) ResetPassword(ctx *gin.Context, req ResetPasswordReq) (ginx.Result, error) {
+	if req.Password != req.ConfirmPassword {
+		return ginx.Result{
+			Code: errs.UserInvalidInput,
+			Msg:  "两次输入密码不同",
+		}, nil
+	}
+	isPassword, err := u.passwordRegexExp.MatchString(req.Password)
+	if err != nil {
+		return ginx.Result{
+			Code: errs.UserInvalidInput,
+			Msg:  "系统错误",
+		}, err
+	}
+	if !isPassword {
+		return ginx.Result{
+			Code: errs.UserInvalidInput,
+			Msg:  "密码必须包含数字、特殊字符、大小字母，并且长度不能小于 8 位",
+		}, nil
+	}
+	ok, err := u.codeSvc.Verify(ctx, bizResetPassword, req.Phone, req.Code)
+	if err != nil {
+		switch {
+		case errors.Is(err, service.ErrCodeVerifyTooMany):
+			return ginx.Result{
+				Code: errs.UserCodeVerifyTooMany,
+				Msg:  "验证码验证次数太多，请稍后再试",
+			}, nil
+		case errors.Is(err, service.ErrCodeExpired):
+			return ginx.Result{
+				Code: errs.UserCodeExpired,
+				Msg:  "验证码已过期",
+			}, nil
+		default:
+			return ginx.Result{
+				Code: errs.UserInternalServerError,
+				Msg:  "系统异常",
+			}, err
+		}
+	}
+	if !ok {
+		return ginx.Result{
+			Code: errs.UserCodeInvalid,
+			Msg:  "验证码不对，请重新输入",
+		}, nil
+	}
+	err = u.userSvc.ResetPasswordByPhone(ctx, req.Phone, req.Password)
+	if err != nil {
+		return ginx.Result{
+			Code: errs.UserInternalServerError,
+			Msg:  "系统错误",
+		}, err
+	}
+	return ginx.Result{
+		Code: http.StatusOK,
+		Msg:  "重置密码成功",
 	}, nil
 }

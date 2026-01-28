@@ -99,16 +99,24 @@ func (g *GORMUserDAO) UpdateAvatar(ctx context.Context, id int64, avatar string)
 		}).Error
 }
 func (g *GORMUserDAO) UpdateById(ctx context.Context, user User) error {
-	// 这种写法依赖于 GORM 的零值和主键更新特性
-	// Update 非零值 WHERE id = ?
-	//return g.db.WithContext(ctx).Updates(&user).Error
+	now := time.Now().UnixMilli()
+	updates := map[string]any{
+		"utime": now,
+	}
+	if user.Nickname != "" {
+		updates["nickname"] = user.Nickname
+	}
+	if user.Birthday.Valid {
+		updates["birthday"] = user.Birthday
+	}
+	if user.AboutMe != "" {
+		updates["about_me"] = user.AboutMe
+	}
+	if user.Password != "" {
+		updates["password"] = user.Password
+	}
 	return g.db.WithContext(ctx).Model(&user).Where("id = ?", user.ID).
-		Updates(map[string]any{
-			"utime":    time.Now().UnixMilli(),
-			"nickname": user.Nickname,
-			"birthday": user.Birthday,
-			"about_me": user.AboutMe,
-		}).Error
+		Updates(updates).Error
 }
 func (g *GORMUserDAO) FindById(ctx context.Context, uid int64) (User, error) {
 	var res User
