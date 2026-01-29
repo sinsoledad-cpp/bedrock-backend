@@ -27,6 +27,7 @@ type UserService interface {
 	FindOrCreate(ctx context.Context, phone string) (domain.User, error)
 	FindOrCreateByWechat(ctx context.Context, wechatInfo domain.WechatInfo) (domain.User, error)
 	ResetPasswordByPhone(ctx context.Context, phone string, password string) error
+	ResetPasswordByEmail(ctx context.Context, email string, password string) error
 }
 
 type DefaultUserService struct {
@@ -156,6 +157,21 @@ func (svc *DefaultUserService) FindOrCreateByWechat(ctx context.Context, wechatI
 
 func (svc *DefaultUserService) ResetPasswordByPhone(ctx context.Context, phone string, password string) error {
 	u, err := svc.repo.FindByPhone(ctx, phone)
+	if err != nil {
+		return err
+	}
+	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	if err != nil {
+		return err
+	}
+	return svc.repo.UpdateNonZeroFields(ctx, domain.User{
+		ID:       u.ID,
+		Password: string(hash),
+	})
+}
+
+func (svc *DefaultUserService) ResetPasswordByEmail(ctx context.Context, email string, password string) error {
+	u, err := svc.repo.FindByEmail(ctx, email)
 	if err != nil {
 		return err
 	}

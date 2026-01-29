@@ -30,9 +30,12 @@ func InitGinMiddlewares(jwtHdl jwt.Handler, l logger.Logger) []gin.HandlerFunc {
 	corsMiddleware := cors.New(cors.Config{
 		// 在生产环境中，您应该将 AllowAllOrigins 设置为 false，并具体指定允许的前端域名
 		// 例如: AllowOrigins: []string{"http://your-frontend.com"},
-		AllowAllOrigins: true,
-		AllowMethods:    []string{"GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"},
-		AllowHeaders:    []string{"Origin", "Content-Length", "Content-Type", "Authorization"},
+		// AllowAllOrigins: true,
+		AllowOriginFunc: func(origin string) bool {
+			return true
+		},
+		AllowMethods: []string{"GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"},
+		AllowHeaders: []string{"Origin", "Content-Length", "Content-Type", "Authorization", "X-Refresh-Token"},
 		// 允许前端访问后端设置的响应头
 		ExposeHeaders: []string{"X-Jwt-Token", "X-Refresh-Token"},
 		// 允许携带 Cookie

@@ -70,8 +70,8 @@ func (u *UserHandler) RegisterRoutes(e *gin.Engine) {
 
 type SignUpReq struct {
 	Email           string `json:"email" binding:"required,email"`
-	Password        string `json:"password" binding:"required,min=8,max=32"`
-	ConfirmPassword string `json:"confirmPassword" binding:"required,eqfield=Password"`
+	Password        string `json:"password" binding:"required"`
+	ConfirmPassword string `json:"confirmPassword" binding:"required"`
 }
 
 func (u *UserHandler) SignUp(ctx *gin.Context, req SignUpReq) (ginx.Result, error) {
@@ -134,7 +134,7 @@ func (u *UserHandler) SignUp(ctx *gin.Context, req SignUpReq) (ginx.Result, erro
 
 type LoginJWTReq struct {
 	Email    string `json:"email" binding:"required,email"`
-	Password string `json:"password" binding:"required,min=8,max=32"`
+	Password string `json:"password" binding:"required"`
 }
 
 func (u *UserHandler) LoginJWT(ctx *gin.Context, req LoginJWTReq) (ginx.Result, error) {
@@ -444,17 +444,22 @@ func (u *UserHandler) LoginSMS(ctx *gin.Context, req LoginSMSReq) (ginx.Result, 
 }
 
 type SendSMSResetPasswordCodeReq struct {
-	Phone string `json:"phone" binding:"required,len=11,numeric"`
+	Phone string `json:"phone"`
+	Email string `json:"email"`
 }
 
 func (u *UserHandler) SendSMSResetPasswordCode(ctx *gin.Context, req SendSMSResetPasswordCodeReq) (ginx.Result, error) {
-	if req.Phone == "" {
+	if req.Phone == "" && req.Email == "" {
 		return ginx.Result{
 			Code: errs.UserInvalidInput,
-			Msg:  "请输入手机号码",
+			Msg:  "请输入手机号码或邮箱",
 		}, nil
 	}
-	err := u.codeSvc.Send(ctx, bizResetPassword, req.Phone)
+	target := req.Phone
+	if req.Email != "" {
+		target = req.Email
+	}
+	err := u.codeSvc.Send(ctx, bizResetPassword, target)
 	switch {
 	case err == nil:
 		return ginx.Result{
@@ -475,13 +480,20 @@ func (u *UserHandler) SendSMSResetPasswordCode(ctx *gin.Context, req SendSMSRese
 }
 
 type ResetPasswordReq struct {
-	Phone           string `json:"phone" binding:"required,len=11,numeric"`
-	Code            string `json:"code" binding:"required,len=6,numeric"`
-	Password        string `json:"password" binding:"required,min=8,max=32"`
-	ConfirmPassword string `json:"confirmPassword" binding:"required,eqfield=Password"`
+	Phone           string `json:"phone"`
+	Email           string `json:"email"`
+	Code            string `json:"code" binding:"required"`
+	Password        string `json:"password" binding:"required"`
+	ConfirmPassword string `json:"confirmPassword" binding:"required"`
 }
 
 func (u *UserHandler) ResetPassword(ctx *gin.Context, req ResetPasswordReq) (ginx.Result, error) {
+	if req.Phone == "" && req.Email == "" {
+		return ginx.Result{
+			Code: errs.UserInvalidInput,
+			Msg:  "请输入手机号码或邮箱",
+		}, nil
+	}
 	if req.Password != req.ConfirmPassword {
 		return ginx.Result{
 			Code: errs.UserInvalidInput,
@@ -501,7 +513,13 @@ func (u *UserHandler) ResetPassword(ctx *gin.Context, req ResetPasswordReq) (gin
 			Msg:  "密码必须包含数字、特殊字符、大小字母，并且长度不能小于 8 位",
 		}, nil
 	}
-	ok, err := u.codeSvc.Verify(ctx, bizResetPassword, req.Phone, req.Code)
+
+	target := req.Phone
+	if req.Email != "" {
+		target = req.Email
+	}
+
+	ok, err := u.codeSvc.Verify(ctx, bizResetPassword, target, req.Code)
 	if err != nil {
 		switch {
 		case errors.Is(err, service.ErrCodeVerifyTooMany):
@@ -527,7 +545,11 @@ func (u *UserHandler) ResetPassword(ctx *gin.Context, req ResetPasswordReq) (gin
 			Msg:  "验证码不对，请重新输入",
 		}, nil
 	}
-	err = u.userSvc.ResetPasswordByPhone(ctx, req.Phone, req.Password)
+	if req.Email != "" {
+		err = u.userSvc.ResetPasswordByEmail(ctx, req.Email, req.Password)
+	} else {
+		err = u.userSvc.ResetPasswordByPhone(ctx, req.Phone, req.Password)
+	}
 	if err != nil {
 		return ginx.Result{
 			Code: errs.UserInternalServerError,
